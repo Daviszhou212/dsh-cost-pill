@@ -1,0 +1,20 @@
+# 零依赖 CI：本插件的测试只用 Node 内置模块，所以**不需要 npm install** 就能跑。
+# 这也是刻意的设计 —— 谁 clone 下来都能立刻验证价格解析与折叠逻辑。
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+      - name: 语法检查 + 全部测试
+        run: npm run check

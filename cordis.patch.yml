@@ -1,0 +1,23 @@
+# dsh-cost-pill bundle patch：把宿主半边（会话费用投影 + loopback 余额路由）挂进 profile 组合。
+# 浏览器半边由 package.json 的 dsh.client 声明接入（exports "./client"）。
+#
+# 安装（来自 GitHub 仓库）：
+#   dsh plugin --profile web add github:Daviszhou212/dsh-cost-pill
+# 源码开发（link 安装，改完重启即生效）：
+#   dsh plugin --profile web add link:<插件源码目录>/dsh-cost-pill
+#
+# 价格覆盖：在 profile 的 cordis.patch.yml 里用 id 定向覆盖本行，例如
+#   - id: cost-pill
+#     config:
+#       pricing:
+#         deepseek-flash:
+#           offpeak: { input: 1, cacheRead: 0.02, cacheWrite: 1, output: 4 }
+#           peak: { input: 2, cacheRead: 0.04, cacheWrite: 2, output: 8 }
+#       balance:            # 余额路由（宿主侧），整段可省
+#         enabled: true
+#         lowThreshold: 10  # 低于该值标红
+#         cacheMs: 120000
+#         timeoutMs: 15000
+- insert:
+    - id: cost-pill
+      name: 'dsh-cost-pill'

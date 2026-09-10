@@ -1,0 +1,22 @@
+# 依赖与构建产物（本插件零构建、测试零依赖，正常不会有这些）
+node_modules/
+*.tgz
+*.log
+npm-debug.log*
+
+# 凭据：绝不入库（本插件本身不读任何文件形式的密钥，凭据走 DSH 的 credentials 缝；
+# 这道闸是防止将来有人把 .env / .credentials.yaml 放到仓库目录里被误提交）
+.env
+.env.*
+*.credentials*
+.credentials.yaml
+
+# 编辑器与系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# 本地跑插件时可能落下的缓存（正常在 $DSH_HOME/storages 下，这里兜底）
+dsh-cost-pill-pricing.json
