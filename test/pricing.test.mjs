@@ -91,6 +91,23 @@ test('价目覆盖：分时段与不分时段两种写法都能合并', () => {
 	assert.equal(flat['acme/model'].offpeak.cacheRead, 0)
 })
 
+test('价目覆盖：在线条目同样过 sanitize，缺省字段继承内置价而不是 0', () => {
+	// 官方页/缓存里的原始条目没有 cacheWrite（页面只公布三个桶）——补齐逻辑本该在
+	// toPricingTable 完成，但 resolvePricing 对绕过它的调用也不能静默按 0 元计。
+	const online = resolvePricing(undefined, {
+		'deepseek-flash': {
+			offpeak: { input: 1, cacheRead: 0.02, output: 4 },
+			peak: { input: 2, cacheRead: 0.04, output: 8 }
+		},
+		'brand-new-model': { offpeak: { input: 3, cacheRead: 0.06, output: 12 }, peak: { input: 6, cacheRead: 0.12, output: 24 } }
+	})
+	assert.equal(online['deepseek-flash'].offpeak.cacheWrite, 1, '继承内置 offpeak cacheWrite')
+	assert.equal(online['deepseek-flash'].peak.cacheWrite, 2, '继承内置 peak cacheWrite')
+	// 内置没有的模型：缺省字段为 0（而不是 undefined 混进金额计算）
+	assert.equal(online['brand-new-model'].offpeak.cacheWrite, 0)
+	assert.equal(online['brand-new-model'].peak.input, 6)
+})
+
 test('折叠：不关心的事件原样返回同一引用（投影注册表的零成本契约）', () => {
 	const state = initialState()
 	assert.equal(applyEvent(state, { type: 'user/message', data: {} }), state)

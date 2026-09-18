@@ -2,6 +2,25 @@
 
 本文件记录对外可见的变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## 0.1.1 — 2026-09-18
+
+**修复**
+
+- **子代理树汇总从未生效**（价格只显示本会话、比真实消耗低数倍）：
+  - `findWorkspaceDir` / `sessionLogFile` 拼路径时漏掉了 `sessions/<工作区目录>/`
+    这一层，任何会话都定位不到日志（`workspace-not-found`）；且顶层会话目录带
+    `session-` 前缀而子代理不带，归一化后的 id 拼不出真实目录名 —— 现在两种写法都探测。
+  - `createTreeSource` 闭包引用了不在作用域内的 `holder`，树路由一被调用就抛
+    `ReferenceError`；客户端把失败静默吞掉后永远回退到「仅本会话」费用。现在价目
+    持有器作为参数传入。
+  - `balance.enabled=false` 会连带跳过树路由注册 —— 两个独立功能解耦。
+  - `sessionsRoot()` 未设 `DSH_HOME` 时默认 `~`，对齐 DSH 的 `${DSH_HOME:-$HOME/.dsh}`
+    约定改为 `~/.dsh`。
+  - 补齐真实磁盘布局下的树路由端到端测试（此前 0 覆盖，以上问题全部漏网）。
+- 在线抓取的价目条目过 `sanitizeRates`：缺省桶（如官方页没有的 `cacheWrite`）继承
+  内置价，而不是静默按 0 元计。
+- `listWorkspaceSessions` 只解压日志首帧读头部，不再为读 200 字节的头整本解压。
+
 ## 0.1.0 — 2026-09-10
 
 首个版本。
