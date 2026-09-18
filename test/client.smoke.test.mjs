@@ -280,7 +280,7 @@ function mountDock(definition, react, options) {
 		}
 		throw new Error(`unexpected require: ${name}`)
 	})
-	module.apply({
+	const fakeCtx = {
 		slots: {
 			inject(_name, fn) {
 				fn()
@@ -290,7 +290,16 @@ function mountDock(definition, react, options) {
 				return () => {}
 			}
 		}
-	})
+	}
+	if (options.sessionId !== undefined) {
+		fakeCtx.sessions = {
+			list: {
+				getSnapshot: () => ({ current: options.sessionId }),
+				subscribe: () => () => {}
+			}
+		}
+	}
+	module.apply(fakeCtx)
 	const rendered = react.render(component, { useProjection: () => options.getView() }, container)
 	activeDisposers.push(rendered.dispose)
 	// 注意合并态下 root 在官方行**内部**，所以要深度查找，不能只看直接子节点
@@ -492,6 +501,49 @@ test('余额：失败时 pill 不带余额段并给出原因；成功时带出�
 	const ok = mountDock(definition, reactOk, { view, withStatsRow: false, getView: () => view })
 	await tick()
 	assert.match(findButton(ok.container).textContent, /余额 ¥8\.500/, '余额应出现在 pill 上')
+})
+
+test('树汇总：pill 显示含子代理树的总费用，面板给出父/子拆分', async () => {
+	const definition = await loadBundle()
+	const react = createReact()
+	const sessionId = 'session-ec36df5a-a7c9-44c2-b5b7-3e83e911db50'
+	globalThis.fetch = async (url) => {
+		const u = String(url)
+		if (u.includes('/api/cost-pill/tree')) {
+			return {
+				json: async () => ({
+					ok: true,
+					sessionId: 'session-ec36df5a-a7c9-44c2-b5b7-3e83e911db50',
+					total: 19.5321,
+					subagents: { count: 20, cost: 17.4154, members: [{ key: '82128951', cost: 1.3727, samples: 74 }] },
+					fetchedAt: Date.now()
+				})
+			}
+		}
+		if (u.includes('/api/cost-pill/balance')) {
+			return { json: async () => ({ ok: true, balance: { total: 137.41, granted: 0, toppedUp: 137.41 }, lowThreshold: 10, fetchedAt: Date.now() }) }
+		}
+		return { json: async () => ({}) }
+	}
+	const dock = mountDock(definition, react, {
+		view: SAMPLE_VIEW,
+		withStatsRow: false,
+		getView: () => SAMPLE_VIEW,
+		sessionId
+	})
+	await tick()
+
+	const button = findButton(dock.container)
+	assert.match(button.textContent, /费用 ¥19\.532/, 'pill 费用应为含子代理树的总费用')
+	assert.match(button.textContent, /余额 ¥137\.41/)
+
+	button.dispatch('click', {})
+	const texts = collectText(dock.container)
+	assert.match(texts, /子代理会话/)
+	assert.match(texts, /本会话/)
+	assert.match(texts, /子代理 ×20/)
+	assert.match(texts, /¥17\.415/, '子代理小计应出现')
+	assert.match(texts, /¥2\.033/, '本会话明细应保留')
 })
 
 /** 等一轮微任务，让 fetch 的 then 链跑完。 */

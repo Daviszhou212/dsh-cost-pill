@@ -9,7 +9,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { apply, BALANCE_PATH, buildSchemas, PROJECTION_KEY, STATE_VERSION } from '../lib/index.js'
+import { apply, BALANCE_PATH, buildSchemas, PROJECTION_KEY, STATE_VERSION, TREE_PATH } from '../lib/index.js'
 
 /**
  * 用假 ctx 跑 apply()。
@@ -17,13 +17,13 @@ import { apply, BALANCE_PATH, buildSchemas, PROJECTION_KEY, STATE_VERSION } from
  * @param config - 插件行 config。
  * @param options - `{ apiKey }`：假凭据缝返回值；`''` 表示没有配 Key。
  *   `{ resolveImpl }`：完全接管 credentials.resolve（用于验证挂起场景）。
- * @returns `{ definition, route }`。
+ * @returns `{ definition, routeFor, routes }`。
  */
 async function register(config, options = {}) {
 	const apiKey = options.apiKey === undefined ? 'sk-test' : options.apiKey
 	const resolveImpl = options.resolveImpl ?? (async () => ({ value: apiKey }))
 	let definition
-	let route
+	const routes = []
 	const ctx = {
 		sessionProjections: {
 			register(def) {
@@ -33,7 +33,7 @@ async function register(config, options = {}) {
 		},
 		webServer: {
 			register(row) {
-				route = row
+				routes.push(row)
 				return () => {}
 			}
 		},
@@ -47,7 +47,11 @@ async function register(config, options = {}) {
 		}
 	}
 	await apply(ctx, config)
-	return { definition, route }
+	return {
+		definition,
+		routes,
+		routeFor: (path) => routes.find((row) => row.path === path)
+	}
 }
 
 /** 造一个假响应对象，收集 writeHead/end。 */
@@ -168,17 +172,19 @@ test('内置价目：不给配置也能给 deepseek-flash 计价', async () => {
 //#region 余额路由
 
 test('余额路由：注册为 /api 下的精确路由，且关掉 balance 后不再注册', async () => {
-	const { route } = await register(undefined)
+	const { routeFor } = await register(undefined)
+	const route = routeFor(BALANCE_PATH)
 	assert.equal(route.kind, 'exact')
 	assert.equal(route.path, BALANCE_PATH)
 	assert.equal(typeof route.handler, 'function')
 
 	const disabled = await register({ balance: { enabled: false } })
-	assert.equal(disabled.route, undefined)
+	assert.equal(disabled.routeFor(BALANCE_PATH), undefined, '关闭余额后不应注册路由')
 })
 
 test('余额路由：本机 GET 走完凭据 → 上游 → 响应，并带上低额阈值', async () => {
-	const { route } = await register({ balance: { lowThreshold: 20 } })
+	const { routeFor } = await register({ balance: { lowThreshold: 20 } })
+	const route = routeFor(BALANCE_PATH)
 	const stub = stubFetch(async () => ({ ok: true, json: async () => BALANCE_BODY }))
 	try {
 		const res = fakeResponse()
@@ -196,7 +202,8 @@ test('余额路由：本机 GET 走完凭据 → 上游 → 响应，并带上�
 })
 
 test('余额路由：TTL 缓存命中不重复打上游，?refresh=1 强制穿透', async () => {
-	const { route } = await register(undefined)
+	const { routeFor } = await register(undefined)
+	const route = routeFor(BALANCE_PATH)
 	const stub = stubFetch(async () => ({ ok: true, json: async () => BALANCE_BODY }))
 	try {
 		await route.handler(fakeRequest(), fakeResponse())
@@ -211,7 +218,8 @@ test('余额路由：TTL 缓存命中不重复打上游，?refresh=1 强制穿�
 })
 
 test('余额路由：没配凭据时给 no-credential，不打上游', async () => {
-	const { route } = await register(undefined, { apiKey: '' })
+	const { routeFor } = await register(undefined, { apiKey: '' })
+	const route = routeFor(BALANCE_PATH)
 	const stub = stubFetch(async () => ({ ok: true, json: async () => BALANCE_BODY }))
 	try {
 		const res = fakeResponse()
@@ -227,7 +235,8 @@ test('余额路由：没配凭据时给 no-credential，不打上游', async () 
 })
 
 test('余额路由：上游 401 映射成 unauthorized；非本机/非 GET 被围栏挡下', async () => {
-	const { route } = await register(undefined)
+	const { routeFor } = await register(undefined)
+	const route = routeFor(BALANCE_PATH)
 	const stub = stubFetch(async () => ({ ok: false, status: 401, json: async () => ({}) }))
 	try {
 		const res = fakeResponse()
@@ -248,7 +257,8 @@ test('余额路由：上游 401 映射成 unauthorized；非本机/非 GET 被�
 
 test('余额路由：resolve 永挂时不再拖死路由（超时后按无凭据降级）', async () => {
 	const never = new Promise(() => {})
-	const { route } = await register({ balance: { resolveTimeoutMs: 30 } }, { apiKey: undefined, resolveImpl: async () => never })
+	const { routeFor } = await register({ balance: { resolveTimeoutMs: 30 } }, { apiKey: undefined, resolveImpl: async () => never })
+	const route = routeFor(BALANCE_PATH)
 	const stub = stubFetch(async () => ({ ok: true, json: async () => BALANCE_BODY }))
 	try {
 		const res = fakeResponse()
@@ -262,7 +272,8 @@ test('余额路由：resolve 永挂时不再拖死路由（超时后按无凭据
 })
 
 test('余额路由：timeoutMs 写 0 被拒之门外，回落默认值且查询仍成功', async () => {
-	const { route } = await register({ balance: { timeoutMs: 0 } })
+	const { routeFor } = await register({ balance: { timeoutMs: 0 } })
+	const route = routeFor(BALANCE_PATH)
 	const stub = stubFetch(async () => ({ ok: true, json: async () => BALANCE_BODY }))
 	try {
 		const res = fakeResponse()
@@ -367,4 +378,17 @@ test('schema 契约：已有 .parse 的实例原样透传，undefined 走直通'
 	assert.equal(typeof fallback.stateSchema.parse, 'function')
 })
 
+test('树路由：注册为精确路由；缺 session 参数给 400', async () => {
+	const { routeFor } = await register({ subagents: true })
+	const treeRoute = routeFor(TREE_PATH)
+	assert.notEqual(treeRoute, undefined, '应注册树路由')
+	assert.equal(treeRoute.path, TREE_PATH)
+
+	const res = fakeResponse()
+	await treeRoute.handler(fakeRequest({ url: TREE_PATH }), res)
+	assert.equal(res.captured.status, 400, '缺 session 参数应 400')
+	assert.equal(JSON.parse(res.captured.body).error, 'missing session')
+})
+
 //#endregion
+
