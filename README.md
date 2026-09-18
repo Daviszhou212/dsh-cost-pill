@@ -17,6 +17,9 @@ DSH Web 插件：在输入框下方的统计行**同一行**里，加一枚**与
   冷启动走检查点，插件卸载自动摘除 key。
 - **价目在线刷新且有闸门**：启动时后台从官方定价页刷新价目（带 TTL 缓存、多重校验、
   离线与校验失败都能降到上一份好数据），面板里明写「价目来源 + 核验日期」。
+- **子代理费用计入**：子代理是独立会话、烧同一个余额。插件按会话头部的
+  `parentSession` / `origin` 收集整棵子代理树（含多层嵌套），与本体一起计价 ——
+  派生了 20 个子代理的会话不会再只显示父会话自己的费用。
 - **零构建**：手写 CJS client bundle（同社区 `dsh-annotation` 做法），没有 build 步骤，
   改完源码重启即生效。
 - **模型可见面为零**：不注入任何提示词、消息、工具或模型调用。
@@ -132,6 +135,14 @@ dsh plugin --profile web remove dsh-cost-pill
   经 fallback 切换后的调用都能各自计价；拿不到 source 的样本落到 `unknown/unknown`，
   会显示为「价格未知」而不是被静默算进别的模型。
 
+- **归因**：按事件的 `message.source` 取 `provider/model`，因此多模型混合会话、以及
+  经 fallback 切换后的调用都能各自计价；拿不到 source 的样本落到 `unknown/unknown`，
+  会显示为「价格未知」而不是被静默算进别的模型。
+- **子代理归集**：子代理是独立会话。pill 的费用默认为「本会话 + 整棵子代理树」：
+  宿主侧按会话头部的 `parentSession` / `origin: 'subagent'` 收集派生树（含多层嵌套），
+  用同一套折叠逻辑逐会话计价后合并；面板「子代理会话」区给出拆分。关闭方式：
+  插件行 config 的 `subagents: false`。
+
 ## 账户余额
 
 面板里的「账户余额」区显示 `total / 充值 / 赠送`，pill 上直接带一段 `余额 ¥x.xx`。
@@ -177,6 +188,9 @@ dsh plugin --profile web remove dsh-cost-pill
   不会立刻改变界面上的数字。
 - **金额是估算值，不等于账单**：中转渠道、合同折扣、赠送额度、按小时计费的缓存存储等
   都无法从会话 token 推算。
+- **子代理发现只认磁盘日志**：树按 `$DSH_HOME/sessions/<工作区>/` 下的日志目录收集，
+  依赖头部 `parentSession` / `origin` 字段；通过其他机制派生或日志被清理的子代理不在
+  统计内。树汇总按日志重算，轮询成本与子代理数量线性相关。
 - **面板是自锚定的**（`position: absolute` 相对 pill），不做官方那种 fixed + 视口
   边缘重排；极端窄窗口下可能贴边，但已被 `max-width: min(440px, 100vw - 24px)` 夹住。
 - **图标是自绘内联 SVG**：官方图标包 `dsh-client-ui-primitives` 里的是 React 组件，
@@ -200,14 +214,15 @@ node scripts/fold-session.mjs "$env:USERPROFILE\.dsh\sessions\<workspace>\<sessi
 | `lib/pricing.js` | 纯逻辑：峰谷判定、路由选价、金额、事件折叠、视图折算（零依赖，可单测） |
 | `lib/price-source.js` | 在线价源：官方页解析、多重校验、TTL 缓存、降级（抓取/校验/断网都不抛） |
 | `lib/balance.js` | 纯逻辑 + 一次 GET：余额返回体解析、loopback 围栏判定、账户接口查询 |
-| `lib/index.js` | 宿主半边：注册 `costPill` 会话投影 + loopback 余额路由 + 后台价目刷新 |
+| `lib/tree.js` | 会话树发现与折叠：多帧 zstd、`parentSession` 收集、mtime 增量缓存 |
+| `lib/index.js` | 宿主半边：注册 `costPill` 会话投影 + 余额路由 + 树汇总路由 + 后台价目刷新 |
 | `lib/client.js` | 浏览器半边：官方同款 pill（费用 · 余额 · 命中）+ 点击展开面板（手写 CJS bundle） |
 | `scripts/fold-session.mjs` | 对账脚本：拿真实会话日志跑同一套折叠逻辑 |
 | `test/pricing.test.mjs` | 单测：时段边界、周末、选价、折叠归因、视图折算、**价格门禁** |
 | `test/price-source.test.mjs` | 单测：**对真实页面夹具**的解析、校验、优先级、缓存与各条降级路径 |
 | `test/balance.test.mjs` | 单测：loopback 围栏、返回体解析、错误映射、带 Bearer 的查询 |
-| `test/host.test.mjs` | 单测：走 `apply()` 真实入口的投影注册 + 余额路由（凭据/缓存/强制刷新/围栏） |
-| `test/client.smoke.test.mjs` | 冒烟：DOM 垫片 + React 替身跑真实 client bundle（同行合并/降级/面板内容/余额两态） |
+| `test/host.test.mjs` | 单测：走 `apply()` 真实入口的投影注册 + 余额路由（凭据/缓存/强制刷新/围栏/schema 契约） |
+| `test/client.smoke.test.mjs` | 冒烟：DOM 垫片 + React 替身跑真实 client bundle（同行合并/恢复/面板内容/余额与树两态） |
 | `test/fixtures/` | 夹具：官方定价页里那张价格表的原样摘录（带抓取时间与来源） |
 
 > `lib/index.js` 会尝试 `import '@deepseek-ai/schemastery'` 给投影加真实 schema 校验；
