@@ -17,6 +17,14 @@
     "余额"
   ],
   "main": "lib/index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Daviszhou212/dsh-cost-pill.git"
+  },
+  "homepage": "https://github.com/Daviszhou212/dsh-cost-pill#readme",
+  "bugs": {
+    "url": "https://github.com/Daviszhou212/dsh-cost-pill/issues"
+  },
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",

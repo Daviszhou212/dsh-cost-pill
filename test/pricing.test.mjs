@@ -120,6 +120,41 @@ test('折叠：按事件时间归属时段、按 provider/model 归因', () => {
 	assert.ok(state.models['unknown/unknown'] !== undefined)
 })
 
+test('折叠：全 0 / 数组形式的 usage 不制造幽灵样本（评审发现）', () => {
+	let state = initialState()
+	const base = { message: { source: { provider: 'x', model: 'y' } } }
+	state = applyEvent(state, {
+		type: 'assistant/message',
+		time: beijing(2026, 9, 10, 10, 0),
+		data: { usage: [], message: base }
+	})
+	state = applyEvent(state, {
+		type: 'assistant/message',
+		time: beijing(2026, 9, 10, 10, 0),
+		data: { usage: {}, message: base }
+	})
+	state = applyEvent(state, {
+		type: 'assistant/message',
+		time: beijing(2026, 9, 10, 10, 0),
+		data: { usage: { inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 0 }, message: base }
+	})
+	assert.equal(state.samples, 0, '无效样本不应虚增计数')
+	assert.deepEqual(Object.keys(state.models), [], '不应制造幽灵模型条目')
+})
+
+test('覆盖：全新模型只配单时段，另一时段镜像而不是归零（评审发现）', () => {
+	// 回归：新模型没有基座可继承，缺失时段曾兜底成全 0 —— 高峰用量被静默按 0 元计
+	const pricing = resolvePricing({ 'relay/mymodel': { offpeak: { input: 1, cacheRead: 0.02, output: 4 } } })
+	assert.equal(pricing['relay/mymodel'].peak.input, 1)
+	assert.equal(pricing['relay/mymodel'].peak.cacheRead, 0.02)
+	assert.equal(pricing['relay/mymodel'].peak.output, 4)
+
+	// 只给 peak 时对称成立
+	const mirrorPeak = resolvePricing({ 'relay/other': { peak: { input: 2, output: 8 } } })
+	assert.equal(mirrorPeak['relay/other'].offpeak.input, 2)
+	assert.equal(mirrorPeak['relay/other'].offpeak.output, 8)
+})
+
 test('折算：视图给出总额、分时段、分模型与命中率', () => {
 	let state = initialState()
 	state = applyEvent(state, {

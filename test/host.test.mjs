@@ -9,17 +9,19 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { apply, BALANCE_PATH, PROJECTION_KEY, STATE_VERSION } from '../lib/index.js'
+import { apply, BALANCE_PATH, buildSchemas, PROJECTION_KEY, STATE_VERSION } from '../lib/index.js'
 
 /**
  * 用假 ctx 跑 apply()。
  *
  * @param config - 插件行 config。
  * @param options - `{ apiKey }`：假凭据缝返回值；`''` 表示没有配 Key。
+ *   `{ resolveImpl }`：完全接管 credentials.resolve（用于验证挂起场景）。
  * @returns `{ definition, route }`。
  */
 async function register(config, options = {}) {
 	const apiKey = options.apiKey === undefined ? 'sk-test' : options.apiKey
+	const resolveImpl = options.resolveImpl ?? (async () => ({ value: apiKey }))
 	let definition
 	let route
 	const ctx = {
@@ -40,7 +42,7 @@ async function register(config, options = {}) {
 		},
 		get(name) {
 			if (name === 'settings') return { get: (ns) => (ns === 'llm-deepseek' ? {} : undefined) }
-			if (name === 'credentials') return { resolve: async () => ({ value: apiKey }) }
+			if (name === 'credentials') return { resolve: resolveImpl }
 			return undefined
 		}
 	}
@@ -242,6 +244,127 @@ test('余额路由：上游 401 映射成 unauthorized；非本机/非 GET 被�
 	} finally {
 		stub.restore()
 	}
+})
+
+test('余额路由：resolve 永挂时不再拖死路由（超时后按无凭据降级）', async () => {
+	const never = new Promise(() => {})
+	const { route } = await register({ balance: { resolveTimeoutMs: 30 } }, { apiKey: undefined, resolveImpl: async () => never })
+	const stub = stubFetch(async () => ({ ok: true, json: async () => BALANCE_BODY }))
+	try {
+		const res = fakeResponse()
+		await route.handler(fakeRequest(), res)
+		assert.equal(res.captured.status, 200)
+		assert.equal(JSON.parse(res.captured.body).error, 'no-credential')
+		assert.equal(stub.count(), 0)
+	} finally {
+		stub.restore()
+	}
+})
+
+test('余额路由：timeoutMs 写 0 被拒之门外，回落默认值且查询仍成功', async () => {
+	const { route } = await register({ balance: { timeoutMs: 0 } })
+	const stub = stubFetch(async () => ({ ok: true, json: async () => BALANCE_BODY }))
+	try {
+		const res = fakeResponse()
+		await route.handler(fakeRequest(), res)
+		assert.equal(res.captured.status, 200)
+		assert.equal(JSON.parse(res.captured.body).ok, true)
+	} finally {
+		stub.restore()
+	}
+})
+
+//#endregion
+
+//#region schema 契约
+
+/**
+ * 复刻 schemastery 3.18.2 的形状：`Schema.xxx()` 返回**可调用函数**，
+ * 校验靠调用形式（非法抛错），实例上没有 .parse。withParse=true 时刻意提供 .parse
+ * 用于对照「已有 .parse 的实例应原样透传」。
+ */
+function makeFakeSchemastery(options = {}) {
+	const make = (validate) => {
+		const fn = (value) => validate(value)
+		fn.default = (defaultValue) => make((value) => (value === undefined || value === null ? defaultValue : fn(value)))
+		if (options.withParse === true) fn.parse = (value) => fn(value)
+		return fn
+	}
+	const number = () => make((value) => {
+		if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error('expected number')
+		return value
+	})
+	const string = () => make((value) => {
+		if (typeof value !== 'string') throw new Error('expected string')
+		return value
+	})
+	const boolean = () => make((value) => {
+		if (typeof value !== 'boolean') throw new Error('expected boolean')
+		return value
+	})
+	return {
+		object: (shape) => make((value) => {
+			if (value === null || typeof value !== 'object') throw new Error('expected object')
+			const out = {}
+			for (const key of Object.keys(shape)) out[key] = shape[key](value[key])
+			return out
+		}),
+		dict: (entry) => make((value) => {
+			if (value === null || typeof value !== 'object') throw new Error('expected dict')
+			const out = {}
+			for (const key of Object.keys(value)) out[key] = entry(value[key])
+			return out
+		}),
+		array: (entry) => make((value) => {
+			if (!Array.isArray(value)) throw new Error('expected array')
+			return value.map((item) => entry(item))
+		}),
+		union: (alternatives) => make((value) => {
+			let lastError
+			for (const alternative of alternatives) {
+				try {
+					return alternative(value)
+				} catch (error) {
+					lastError = error
+				}
+			}
+			throw lastError ?? new Error('no union option matched')
+		}),
+		const: (constant) => make((value) => {
+			if (value !== constant) throw new Error('expected constant ' + String(constant))
+			return value
+		}),
+		number,
+		string,
+		boolean
+	}
+}
+
+test('schema 契约：可调用无 .parse 的 schemastery 实例会被包出 .parse（回归：注册表炸 TypeError）', () => {
+	const { stateSchema, viewSchema } = buildSchemas(makeFakeSchemastery())
+	assert.equal(typeof stateSchema.parse, 'function', 'stateSchema 必须有 .parse（注册表契约）')
+	assert.equal(typeof viewSchema.parse, 'function', 'viewSchema 必须有 .parse')
+
+	// 合法值：parse 走调用形式校验并返回结果 —— 真实校验仍然生效
+	const state = stateSchema.parse({
+		total: { peak: {}, offpeak: {} },
+		models: {},
+		updatedAt: 1,
+		samples: 2
+	})
+	assert.equal(state.samples, 2)
+	// 非法值：调用形式抛错（证明不是被 passthrough 吞掉的）。updatedAt 是 number 字段。
+	assert.throws(() => stateSchema.parse({ total: { peak: {}, offpeak: {} }, models: {}, updatedAt: 'x', samples: 2 }), /expected number/)
+	assert.throws(() => viewSchema.parse({ cost: 'x' }), /expected/)
+})
+
+test('schema 契约：已有 .parse 的实例原样透传，undefined 走直通', () => {
+	const built = buildSchemas(makeFakeSchemastery({ withParse: true }))
+	assert.equal(typeof built.stateSchema.parse, 'function', '已有 .parse 时应原样透传')
+	assert.equal(built.stateSchema.parse({ total: { peak: {}, offpeak: {} }, models: {}, updatedAt: 1, samples: 3 }).samples, 3)
+
+	const fallback = buildSchemas(undefined)
+	assert.equal(typeof fallback.stateSchema.parse, 'function')
 })
 
 //#endregion

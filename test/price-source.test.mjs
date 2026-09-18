@@ -14,6 +14,7 @@ import { join } from 'node:path'
 
 import {
 	DEFAULT_TTL_MS,
+	PRICING_URL,
 	loadPricingModels,
 	parsePricingPage,
 	readPricingCache,
@@ -131,6 +132,32 @@ test('抓取：HTML 夹具 → 价目；失败时降级且不抛', async () => {
 		assert.equal(stale.source, 'stale-cache')
 		assert.match(stale.error, /offline/)
 		assert.equal(stale.models['deepseek-flash'].offpeak.output, 4, '过期缓存仍应可用')
+	} finally {
+		cache.cleanup()
+	}
+})
+
+test('抓取：校验拒绝但盘上有过期好缓存时，回退到那份缓存（评审发现）', async () => {
+	const cache = tempCachePath()
+	try {
+		// 先写一份已过 TTL 但内容良好的缓存
+		const { models } = parsePricingPage(FIXTURE)
+		writePricingCache(cache.path, {
+			fetchedAt: Date.now() - 2 * DEFAULT_TTL_MS,
+			url: PRICING_URL,
+			models
+		})
+
+		// 本次抓取成功但校验不过（例如页面价格笔误、解析串列）
+		const tampered = FIXTURE.replace('0.04元', '9.99元')
+		const rejected = await loadPricingModels({
+			cachePath: cache.path,
+			fetchImpl: async () => ({ ok: true, status: 200, text: async () => tampered })
+		})
+
+		assert.equal(rejected.source, 'stale-cache', '应回退到盘上的过期好缓存')
+		assert.equal(rejected.models['deepseek-flash'].offpeak.input, 1, '回退后价目可用')
+		assert.match(rejected.error, /not twice off-peak/, '拒绝原因保留给界面展示')
 	} finally {
 		cache.cleanup()
 	}
