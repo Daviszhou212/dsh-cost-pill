@@ -221,19 +221,27 @@ test('折算：未知模型不计金额但列进 unpriced', () => {
 /**
  * 价格门禁：内置价目必须逐项等于官方定价页上的数字。
  * 这是「防虚构」护栏 —— 有人改价时必须同时改这里，并核对 PRICING_SOURCE 页面。
- * 官方页（2026-09-10 核对）：flash 命中 0.02 / 未命中 1 / 输出 4（空闲），高峰 ×2；
- * v4-pro 命中 0.15 / 未命中 4.5 / 输出 13.5（空闲），高峰 ×2。
+ * DeepSeek 官方页（2026-09-20 复核，与 09-10 一致）：flash 命中 0.02 / 未命中 1 /
+ * 输出 4（空闲），高峰 ×2；v4-pro 命中 0.15 / 未命中 4.5 / 输出 13.5（空闲），高峰 ×2。
+ * GLM-5.3-Flash（bigmodel.cn，2026-09-20）：标准价 输入 0.8 / 缓存命中 0.23 / 输出 2.8，不分峰谷。
  */
 test('价格门禁：内置价目与官方页面逐项一致', () => {
 	const flash = { offpeak: { input: 1, cacheRead: 0.02, cacheWrite: 1, output: 4 }, peak: { input: 2, cacheRead: 0.04, cacheWrite: 2, output: 8 } }
 	const pro = { offpeak: { input: 4.5, cacheRead: 0.15, cacheWrite: 4.5, output: 13.5 }, peak: { input: 9, cacheRead: 0.3, cacheWrite: 9, output: 27 } }
+	const glm = { offpeak: { input: 0.8, cacheRead: 0.23, cacheWrite: 0.8, output: 2.8 }, peak: { input: 0.8, cacheRead: 0.23, cacheWrite: 0.8, output: 2.8 } }
 
 	assert.deepEqual(DEFAULT_PRICING['deepseek-flash'], flash)
 	assert.deepEqual(DEFAULT_PRICING['deepseek-v4-flash'], flash, '旧模型名按 Flash 价计费（页面脚注 1）')
 	assert.deepEqual(DEFAULT_PRICING['deepseek-v4-flash-vision-exp'], flash, '同上')
 	assert.deepEqual(DEFAULT_PRICING['deepseek-v4-pro'], pro)
-	assert.equal(PRICING_CHECKED_AT, '2026-09-10')
+	assert.deepEqual(DEFAULT_PRICING['glm-5.3-flash'], glm)
+	assert.equal(PRICING_CHECKED_AT, '2026-09-20')
 	assert.match(PRICING_SOURCE, /api-docs\.deepseek\.com\/zh-cn\/quick_start\/pricing/)
+})
+
+test('选价：zai-coding-cn 的 glm 路由命中 glm-5.3-flash 条目', () => {
+	const table = resolvePricing(undefined)
+	assert.equal(priceOf('zai-coding-cn/glm-5.3-flash', table).key, 'glm-5.3-flash')
 })
 
 test('价格门禁：flash 系高峰恰为空闲的两倍（页面脚注 3）', () => {
