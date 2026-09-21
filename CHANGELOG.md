@@ -2,6 +2,19 @@
 
 本文件记录对外可见的变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## 0.1.3 — 2026-09-20
+
+**修复**
+
+- **pill 钉不到最右 + 挤压官方 pill 的真正根因**：放置逻辑依赖官方 StatsPills 根节点
+  的 `data-composer-stats` 标记，但该属性在当前 DSH 版本里**并不存在**（全仓库可证），
+  合并分支从未激活 —— pill 长期处于独立态，其 `width:100%` 把同行的官方 pill 挤出
+  省略号；上一版加在合并态上的 `order:999` 自然也从未生效。
+  现改为纯插槽方案：官方 stats（order 0）与本插件（order 1）都是
+  `conversation.composer.dock` 列表插槽的占用者，位置由插槽契约保证；pill 根节点改为
+  紧凑项（`flex:none`，不再 `width:100%`），`margin-left:auto` 钉在 dock 行最右端、
+  ContextMeter 左侧；删除全部搬运/观察者代码；面板改为右对齐锚定（贴右不溢出视口）。
+
 ## 0.1.2 — 2026-09-20
 
 **修复**

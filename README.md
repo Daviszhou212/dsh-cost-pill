@@ -7,11 +7,11 @@ DSH Web 插件：在输入框下方的统计行**同一行**里，加一枚**与
 - **视觉零发明**：pill 与面板的每个数值都逐条抄自官方源码 —— `StatsPills.module.css`
   （颜色 token、字号、`gap`、`padding`、`border-radius`、hover 态、`sep` 的 margin）与
   `stat-dialog.module.css`（面板底色、阴影、圆角、`dl` 网格列宽与右对齐）。
-- **与官方统计行同排**：官方统计行的根节点自带 `data-composer-stats` 标记，pill 直接
-  挂进那一行，和「N 轮 M 步 · tok/s」「tok · 缓存命中」并排；官方行不存在时（其无统计
-  内容时根本不渲染）自动降级为独占一行的居中布局。
-- **不猜官方文案**：定位靠官方自己的属性标记与结构，不靠文本正则（第三方插件常用的
-  `/^\d+ 轮 · \d+ 步/` 这类匹配，官方改一次文案就失效）。
+- **纯插槽放置，钉在行最右**：官方统计行（StatsPills）与本插件都是
+  `conversation.composer.dock` 列表插槽的占用者（官方 order 0、本插件 order 1），插槽
+  运行时按 order 排序渲染；pill 根节点用 `margin-left:auto` 钉在 dock 行最右端、
+  ContextMeter（上下文余量）左侧。不做 DOM 搬运、不猜官方文案与属性（曾依赖的
+  `data-composer-stats` 标记在当前 DSH 里并不存在，纯插槽方案不受官方改名影响）。
 - **走官方投影缝**：宿主半边把费用注册成 `ctx.sessionProjections` 的 `costPill` 单元，
   浏览器半边用插槽运行时注入的 `useProjection('costPill')` 读取；跨分页、跨压缩存活，
   冷启动走检查点，插件卸载自动摘除 key。
@@ -222,7 +222,7 @@ node scripts/fold-session.mjs "$env:USERPROFILE\.dsh\sessions\<workspace>\<sessi
 | `test/price-source.test.mjs` | 单测：**对真实页面夹具**的解析、校验、优先级、缓存与各条降级路径 |
 | `test/balance.test.mjs` | 单测：loopback 围栏、返回体解析、错误映射、带 Bearer 的查询 |
 | `test/host.test.mjs` | 单测：走 `apply()` 真实入口的投影注册 + 余额路由（凭据/缓存/强制刷新/围栏/schema 契约） |
-| `test/client.smoke.test.mjs` | 冒烟：DOM 垫片 + React 替身跑真实 client bundle（同行合并/恢复/面板内容/余额与树两态） |
+| `test/client.smoke.test.mjs` | 冒烟：DOM 垫片 + React 替身跑真实 client bundle（原地渲染/面板内容/余额与树两态/未定价「+」） |
 | `test/fixtures/` | 夹具：官方定价页里那张价格表的原样摘录（带抓取时间与来源） |
 
 > `lib/index.js` 会尝试 `import '@deepseek-ai/schemastery'` 给投影加真实 schema 校验；

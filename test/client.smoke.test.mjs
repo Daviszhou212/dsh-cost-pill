@@ -1,17 +1,20 @@
 /**
  * 浏览器半边冒烟测试：用一个极简 DOM 垫片 + React 替身，把真实 client bundle 跑起来。
  *
- * 覆盖（对应评审指出的零覆盖区）：
- *   1. 合并：官方统计行在时，pill 挂进那一行（`data-composer-stats` 锚点）；
- *   2. 恢复：官方行被抹掉 → 降级独立行；新官方行出现 → 自动重新合并
- *      （通过可派发的 MutationObserver + 可 flush 的 rAF 队列驱动，不再用空操作垫片）；
- *   3. 投影 undefined → 有值：pill 从隐藏变为显示；
- *   4. dispose：rAF 不再 place、document 监听被清空；
- *   5. 面板内容齐备；余额失败/成功两态；官方图标包存在时也必须正常挂载；
- *   6. 面板在数据未变时不重建（不闪动、不丢监听）。
+ * 覆盖：
+ *   1. 原地渲染：root 挂在插槽座位内部，不做任何 DOM 搬运（不建 MutationObserver、
+ *      不碰座位之外的节点）——放置完全交给插槽 order 与 CSS，这是对旧「合并/搬运」
+ *      方案的回归护栏；
+ *   2. 投影 undefined → 有值：pill 从隐藏变为显示；
+ *   3. dispose：root 摘除、document 监听被清空；
+ *   4. 面板内容齐备；余额失败/成功两态；未定价模型金额带「+」；官方图标包存在时也
+ *      必须正常挂载；
+ *   5. 面板在数据未变时不重建（不闪动、不丢监听）；
+ *   6. 树汇总：pill 显示含子代理树的总费用，面板给出父/子拆分。
  *
  * 垫片只实现本插件真正用到的那部分 DOM/React 契约。关键时序对齐真实 React：
- * **先提交 DOM，再跑 effect**（否则挂载时拿不到父节点）；rAF 进队列、由测试显式 flush。
+ * **先提交 DOM，再跑 effect**（否则挂载 effect 拿不到 holder）；rAF/观察者队列保留
+ * 垫片是为了证明新方案根本不再使用它们。
  */
 
 import test from 'node:test'
@@ -41,9 +44,6 @@ function makeElement(tag) {
 		setAttribute(name, value) {
 			this.attributes[name] = String(value)
 			if (name === 'class') this.className = String(value)
-			if (name.startsWith('data-')) {
-				this.dataset[name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = String(value)
-			}
 		},
 		getAttribute(name) {
 			return this.attributes[name]
@@ -80,29 +80,14 @@ function makeElement(tag) {
 				cursor = cursor.parentElement
 			}
 			return false
-		},
-		querySelector(selector) {
-			const match = /^\[([a-zA-Z-]+)\]$/.exec(selector)
-			if (match === null) return null
-			const attribute = match[1]
-			const walk = (node) => {
-				for (const child of node.childNodes ?? []) {
-					if (child.attributes !== undefined && child.attributes[attribute] !== undefined) return child
-					const deeper = walk(child)
-					if (deeper !== null) return deeper
-				}
-				return null
-			}
-			return walk(this)
 		}
 	}
 }
 
-/** 可控的 document / MutationObserver / rAF：测试用 flush* 驱动异步节奏。 */
+/** 可控的 document / MutationObserver / rAF：观察者计数用于证明新方案不再创建它们。 */
 function installDom() {
 	const listeners = {}
 	const observers = []
-	const rafQueue = []
 	globalThis.document = {
 		head: makeElement('head'),
 		body: makeElement('body'),
@@ -128,28 +113,13 @@ function installDom() {
 		disconnect() {
 			this.disconnected = true
 		}
-		/** 测试手动派发一次变更。 */
-		flush() {
-			if (!this.disconnected) this.callback([{ type: 'childList' }], this)
-		}
 	}
-	globalThis.requestAnimationFrame = (fn) => {
-		const entry = { fn, cancelled: false }
-		rafQueue.push(entry)
-		return entry
-	}
+	globalThis.requestAnimationFrame = (fn) => ({ fn, cancelled: false })
 	globalThis.cancelAnimationFrame = (entry) => {
 		if (entry && typeof entry === 'object') entry.cancelled = true
 	}
 	return {
-		flushObservers() {
-			for (const observer of observers) observer.flush()
-		},
-		flushRaf() {
-			for (const entry of rafQueue.splice(0)) {
-				if (!entry.cancelled) entry.fn()
-			}
-		},
+		observerCount: () => observers.length,
 		listenerCount: (type) => (listeners[type] ?? []).length
 	}
 }
@@ -251,21 +221,24 @@ const activeDisposers = []
 
 test.afterEach(() => {
 	for (const dispose of activeDisposers.splice(0)) dispose()
-	dom.flushRaf()
 })
 
+/** 深度优先找指定 className 的节点。 */
+function findByClass(node, className) {
+	if (node.className === className) return node
+	for (const child of node.childNodes ?? []) {
+		const found = findByClass(child, className)
+		if (found !== null && found !== undefined) return found
+	}
+	return null
+}
+
 /**
- * 造一个 dock 容器（可选带官方统计行），挂载座位组件。
- * `options.getView()` 提供投影值；`rerender()` 在视图变化后重新渲染座位。
+ * 挂载座位组件到一个假 dock 容器。`options.getView()` 提供投影值；
+ * `rerender()` 在视图变化后重新渲染座位。
  */
 function mountDock(definition, react, options) {
 	const container = makeElement('div')
-	if (options.withStatsRow === true) {
-		const official = makeElement('div')
-		official.setAttribute('data-composer-stats', 'true')
-		official.appendChild(makeElement('span'))
-		container.appendChild(official)
-	}
 	let component = null
 	const module = definition.factory((name) => {
 		if (name === 'react') return react.React
@@ -302,12 +275,9 @@ function mountDock(definition, react, options) {
 	module.apply(fakeCtx)
 	const rendered = react.render(component, { useProjection: () => options.getView() }, container)
 	activeDisposers.push(rendered.dispose)
-	// 注意合并态下 root 在官方行**内部**，所以要深度查找，不能只看直接子节点
-	const root = () => container.querySelector('[data-merged]')
 	return {
 		container,
-		officialRow: container.querySelector('[data-composer-stats]'),
-		root,
+		root: () => findByClass(container, 'dcp_root'),
 		dispose: rendered.dispose,
 		rerender: () => react.render(component, { useProjection: () => options.getView() }, container)
 	}
@@ -356,47 +326,23 @@ const SAMPLE_VIEW = {
 	samples: 196
 }
 
-test('合并：官方统计行在时，pill 被挂进那一行（同排）', async () => {
+test('原地渲染：root 挂在座位内部，不建观察者、不做任何 DOM 搬运', async () => {
 	const definition = await loadBundle()
 	const react = createReact()
 	globalThis.fetch = async () => ({ json: async () => ({ ok: false, error: 'unavailable' }) })
 	const view = SAMPLE_VIEW
-	const dock = mountDock(definition, react, { view, withStatsRow: true, getView: () => view })
+	const dock = mountDock(definition, react, { view, getView: () => view })
 
-	const merged = dock.officialRow.childNodes.filter((child) => child.getAttribute?.('data-merged') === 'true')
-	assert.equal(merged.length, 1, 'pill 的 root 应被合并进官方统计行')
-	assert.equal(findButton(dock.officialRow) !== null, true, 'pill 按钮应在官方行内部')
-	assert.equal(
-		dock.container.childNodes.filter(
-			(child) => child.getAttribute?.('data-merged') !== undefined && child !== dock.officialRow
-		).length,
-		0,
-		'容器里不应再留一份'
-	)
-})
-
-test('恢复：官方行被抹掉后降级独立行；新官方行出现后自动重新合并', async () => {
-	const definition = await loadBundle()
-	const react = createReact()
-	globalThis.fetch = async () => ({ json: async () => ({ ok: false, error: 'unavailable' }) })
-	const view = SAMPLE_VIEW
-	const dock = mountDock(definition, react, { view, withStatsRow: true, getView: () => view })
 	const root = dock.root()
+	assert.notEqual(root, null, 'root 应已挂进座位')
+	assert.equal(root.parentElement.className, 'dcp_seat', 'root 的父节点必须是座位 span（display:contents）')
+	assert.equal(root.parentElement.parentElement, dock.container, '座位应直接挂在 dock 容器里')
+	assert.equal(findButton(root) !== null, true, 'pill 按钮应在 root 内部')
+	assert.equal(dom.observerCount(), 0, '新方案不应创建任何 MutationObserver（放置由插槽契约保证）')
 
-	// 官方行被 React 抹掉
-	dock.officialRow.remove()
-	dom.flushObservers()
-	dom.flushRaf()
-	assert.equal(root.parentElement, dock.container, '官方行消失后应降级为独立一行（挂在容器）')
-	assert.equal(root.getAttribute('data-merged'), 'false')
-
-	// 新官方行出现（React 重排后再渲染）
-	const newRow = makeElement('div')
-	newRow.setAttribute('data-composer-stats', 'true')
-	dock.container.appendChild(newRow)
-	dom.flushObservers()
-	dom.flushRaf()
-	assert.equal(root.parentElement, newRow, '新官方行出现后应重新合并')
+	// 重渲染（React 重排）后 root 仍原地不动 —— 不再有「被抹掉再挂回」的把戏
+	dock.rerender()
+	assert.equal(dock.root(), root, 'rerender 后 root 应保持同一引用、同一位置')
 })
 
 test('投影 undefined → 有值：pill 从隐藏变为显示', async () => {
@@ -404,7 +350,7 @@ test('投影 undefined → 有值：pill 从隐藏变为显示', async () => {
 	const react = createReact()
 	globalThis.fetch = async () => ({ json: async () => ({ ok: false, error: 'unavailable' }) })
 	let view = undefined
-	const dock = mountDock(definition, react, { getView: () => view, withStatsRow: false })
+	const dock = mountDock(definition, react, { getView: () => view })
 	const root = dock.root()
 	assert.equal(root.style.display, 'none', '无投影值时隐藏')
 
@@ -414,25 +360,30 @@ test('投影 undefined → 有值：pill 从隐藏变为显示', async () => {
 	assert.match(findButton(dock.container).textContent, /费用 ¥2\.033/)
 })
 
-test('dispose：rAF 不再搬运、document 监听被清空', async () => {
+test('dispose：root 摘除、document 监听被清空', async () => {
 	const definition = await loadBundle()
 	const react = createReact()
 	globalThis.fetch = async () => ({ json: async () => ({ ok: false, error: 'unavailable' }) })
 	const view = SAMPLE_VIEW
-	const dock = mountDock(definition, react, { view, withStatsRow: true, getView: () => view })
-	const root = dock.root()
-	assert.equal(root.parentElement, dock.officialRow)
+	const dock = mountDock(definition, react, { view, getView: () => view })
+	assert.notEqual(dock.root(), null)
 
 	const before = dom.listenerCount('mousedown') + dom.listenerCount('keydown')
 	assert.ok(before > 0, '挂载时应注册 document 级监听')
 	dock.dispose()
 	assert.equal(dom.listenerCount('mousedown') + dom.listenerCount('keydown'), 0, 'dispose 应清空 document 监听')
+	assert.equal(dock.root(), null, 'dispose 应把 root 从 DOM 摘除')
+})
 
-	// dispose 后官方行被抹掉：rAF 已取消，root 不会被再次搬运
-	dock.officialRow.remove()
-	dom.flushObservers()
-	dom.flushRaf()
-	assert.equal(root.parentElement, null, 'dispose 后不再放置')
+test('未定价模型：pill 金额带「+」后缀（金额只是已定价部分的下限）', async () => {
+	const definition = await loadBundle()
+	globalThis.fetch = async () => ({ json: async () => ({ ok: false, error: 'unavailable' }) })
+	const view = { ...SAMPLE_VIEW, unpriced: ['zai-coding-cn/glm-5.3-flash'] }
+	const unpriced = mountDock(definition, createReact(), { view, getView: () => view })
+	assert.match(findButton(unpriced.container).textContent, /费用 ¥2\.033\+/, 'unpriced 非空时主金额应带 +')
+
+	const priced = mountDock(definition, createReact(), { view: SAMPLE_VIEW, getView: () => SAMPLE_VIEW })
+	assert.doesNotMatch(findButton(priced.container).textContent, /¥2\.033\+/, '全部定价时不应带 +')
 })
 
 test('内容：pill 文案与面板（明细 / 账户余额 / 分模型 / 单价 / 价目来源）齐备', async () => {
@@ -442,7 +393,7 @@ test('内容：pill 文案与面板（明细 / 账户余额 / 分模型 / 单价
 		json: async () => ({ ok: true, balance: { total: 107.54, granted: 0, toppedUp: 107.54 }, lowThreshold: 10, fetchedAt: Date.now() })
 	})
 	const view = SAMPLE_VIEW
-	const dock = mountDock(definition, react, { view, withStatsRow: true, getView: () => view })
+	const dock = mountDock(definition, react, { view, getView: () => view })
 	await tick()
 
 	const button = findButton(dock.container)
@@ -468,7 +419,7 @@ test('面板：数据未变时连续 render 不重建面板 DOM', async () => {
 	const react = createReact()
 	globalThis.fetch = async () => ({ json: async () => ({ ok: false, error: 'unavailable' }) })
 	const view = SAMPLE_VIEW
-	const dock = mountDock(definition, react, { view, withStatsRow: false, getView: () => view })
+	const dock = mountDock(definition, react, { view, getView: () => view })
 	const button = findButton(dock.container)
 	button.dispatch('click', {})
 
@@ -487,7 +438,7 @@ test('余额：失败时 pill 不带余额段并给出原因；成功时带出�
 		throw new Error('offline')
 	}
 	const view = SAMPLE_VIEW
-	const failed = mountDock(definition, reactFailed, { view, withStatsRow: false, getView: () => view })
+	const failed = mountDock(definition, reactFailed, { view, getView: () => view })
 	await tick()
 	const failedButton = findButton(failed.container)
 	assert.doesNotMatch(failedButton.textContent, /余额/, '余额拿不到时 pill 不应出现余额段')
@@ -498,7 +449,7 @@ test('余额：失败时 pill 不带余额段并给出原因；成功时带出�
 	globalThis.fetch = async () => ({
 		json: async () => ({ ok: true, balance: { total: 8.5, granted: 0, toppedUp: 8.5 }, lowThreshold: 10, fetchedAt: Date.now() })
 	})
-	const ok = mountDock(definition, reactOk, { view, withStatsRow: false, getView: () => view })
+	const ok = mountDock(definition, reactOk, { view, getView: () => view })
 	await tick()
 	assert.match(findButton(ok.container).textContent, /余额 ¥8\.500/, '余额应出现在 pill 上')
 })
@@ -527,7 +478,6 @@ test('树汇总：pill 显示含子代理树的总费用，面板给出父/子�
 	}
 	const dock = mountDock(definition, react, {
 		view: SAMPLE_VIEW,
-		withStatsRow: false,
 		getView: () => SAMPLE_VIEW,
 		sessionId
 	})
