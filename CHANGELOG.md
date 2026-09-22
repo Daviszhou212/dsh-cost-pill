@@ -2,6 +2,20 @@
 
 本文件记录对外可见的变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## 0.1.4 — 2026-09-20
+
+**修复（适配 DSH 0.1.7-alpha.1）**
+
+- **面板透明**：alpha 把 `--dsw-specific-menu` 从不透明色改为半透明（浅 `#f8f9fa94` /
+  深 `#30313680`），官方面板配套加了毛玻璃 `backdrop-filter`。本插件的面板只抄了背景
+  色没抄模糊，内容直接透底。现已补上
+  `backdrop-filter:var(--dsw-menu-backdrop-filter, blur(40px) saturate(150%))`
+  （带 fallback，旧版无此变量时也不受影响）。
+- sep 分隔点颜色 `--dsw-alias-separator-primary` 在 alpha 里被官方 CSS 引用却无人定义
+  （上游回归），兜底到 `--dsw-alias-label-tertiary`。
+- pill 字号对齐 alpha 的官方统计行（`calc(--dsh-content-font-size-secondary - 1px)`）。
+- 已核对面板用到的全部 22 个主题 token：除上述三处外其余在 alpha 中均有定义。
+
 ## 0.1.3 — 2026-09-20
 
 **修复**
