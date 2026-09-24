@@ -264,22 +264,14 @@ function mountDock(definition, react, options) {
 			}
 		}
 	}
-	if (options.sessionId !== undefined) {
-		fakeCtx.sessions = {
-			list: {
-				getSnapshot: () => ({ current: options.sessionId }),
-				subscribe: () => () => {}
-			}
-		}
-	}
 	module.apply(fakeCtx)
-	const rendered = react.render(component, { useProjection: () => options.getView() }, container)
+	const rendered = react.render(component, { useProjection: () => options.getView(), sessionId: options.sessionId }, container)
 	activeDisposers.push(rendered.dispose)
 	return {
 		container,
 		root: () => findByClass(container, 'dcp_root'),
 		dispose: rendered.dispose,
-		rerender: () => react.render(component, { useProjection: () => options.getView() }, container)
+		rerender: () => react.render(component, { useProjection: () => options.getView(), sessionId: options.sessionId }, container)
 	}
 }
 

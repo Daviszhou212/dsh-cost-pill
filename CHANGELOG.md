@@ -2,6 +2,26 @@
 
 本文件记录对外可见的变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## 0.1.6 — 2026-09-24
+
+**修复（子代理树在前端从未生效：会话 id 取不到）**
+
+- **症状与 0.1.5 修的 v4 问题不同**：宿主树路由数据齐全（直接 GET
+  `/api/cost-pill/tree?session=…` 返回完整子代理树），但浏览器端的
+  `loadTree()` 一次都没发出过——pill 永远只显示本会话费用，面板
+  「子代理会话」区永不出现，`.catch` 静默吞掉，无任何报错。
+- **根因**：`currentSessionId()` 读 `ctx.sessions.list.getSnapshot().current`，
+  而真实 sessions store 的快照**没有 `current` 字段**（官方插件一律用
+  `byId` + `retainedBy.mainView > 0` 找当前会话）。id 恒为 `undefined`，
+  `loadTree()` 开头就 return。冒烟测试用带 `.current` 的 ctx 替身，
+  所以从未暴露。
+- **修法**：插槽是 `scope: "session"`，cordis 客户端运行时的标准 props 就携带
+  `sessionId`——座位组件把它直接传进命令式 UI，`loadTree()` 优先使用；缺省时
+  回退到官方同款 `byId` 扫描（不再读 `.current`）。测试改为经 props 传
+  sessionId，与真实挂载路径一致。
+- 实测：重启后历史会话（含 5 个子代理、子代理占 60% 费用的真实案例）面板即出
+  「子代理会话」拆分，pill 显示含树总费用。
+
 ## 0.1.5 — 2026-09-24
 
 **修复（适配 DSH 0.1.7-alpha.2 的 v4 会话日志）**
