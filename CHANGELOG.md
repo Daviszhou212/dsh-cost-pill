@@ -2,6 +2,22 @@
 
 本文件记录对外可见的变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## 0.1.5 — 2026-09-24
+
+**修复（适配 DSH 0.1.7-alpha.2 的 v4 会话日志）**
+
+- **子代理 / agent-team 费用归集在 alpha.2 上完全失效**：`lib/tree.js` 两处硬编码
+  `session.v3.jsonl.zstd`，而 alpha.2 起新会话只写 `session.v4.jsonl.zstd` ——
+  `listWorkspaceSessions` 扫不到任何子会话头部，`sessionLogFile` 对 v4-only 会话
+  必然落空，树路由恒返回 `total=0 / count=0`。客户端因「无子代理」静默回退为仅
+  本会话费用，面板「子代理会话」区永不出现，全程无任何报错。
+- 现按 **v4 优先、v3 兜底**探测日志文件名（升级前的老会话两代并存，v3 是死数据，
+  必须优先 v4）。归集条件 `origin === 'subagent'` 无需改动：实测 agent-team 队员的
+  会话头部即 subagent 语义（`origin: 'subagent'`、`parentSession`、`delegationDepth`），
+  天然被覆盖。
+- 已在真实磁盘数据上验证（1 本体会话 + 1 subagent + 1 agent-team 队员的树正确归集
+  与计价），57 项测试全过。
+
 ## 0.1.4 — 2026-09-20
 
 **修复（适配 DSH 0.1.7-alpha.1）**
