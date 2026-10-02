@@ -1,6 +1,6 @@
 {
   "name": "dsh-cost-pill",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "description": "DSH Web plugin: a session API-cost + account-balance pill merged into the official composer stats row, with a click-open breakdown panel. Host half registers a `costPill` session projection and a loopback-only balance route; browser half renders it through the slot runtime.",
   "license": "MIT",
@@ -40,13 +40,13 @@
   ],
   "engines": {
     "node": "^22.19.0 || >=24.0.0",
-    "dsh": "^0.1.5-rc.1"
+    "dsh": ">=0.1.5-rc.1 <0.3.0"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-credentials": "^0.1.5-rc.1",
-    "@deepseek-ai/dsh-host-webserver": "^0.1.5-rc.1",
-    "@deepseek-ai/dsh-session-projection": "^0.1.5-rc.1",
-    "@deepseek-ai/dsh-settings": "^0.1.5-rc.1",
+    "@deepseek-ai/dsh-credentials": ">=0.1.5-rc.1 <0.3.0",
+    "@deepseek-ai/dsh-host-webserver": ">=0.1.5-rc.1 <0.3.0",
+    "@deepseek-ai/dsh-session-projection": ">=0.1.5-rc.1 <0.3.0",
+    "@deepseek-ai/dsh-settings": ">=0.1.5-rc.1 <0.3.0",
     "@deepseek-ai/schemastery": "^3.18.2",
     "react": "^18.2.0"
   },
@@ -80,7 +80,8 @@
     "compatibility": {
       "dshReleases": {
         "0.1.5-rc.1": "compatible",
-        "0.1.7-alpha.2": "compatible"
+        "0.1.7-alpha.2": "compatible",
+        "0.2.0-rc.2": "compatible"
       }
     }
   },
