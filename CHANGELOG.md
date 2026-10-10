@@ -2,6 +2,30 @@
 
 本文件记录对外可见的变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## 0.1.8 — 2026-10-10
+
+**新功能（zai-coding-cn 会话显示 GLM Coding Plan 剩余额度）**
+
+- 会话的计费样本来自 `zai-coding-cn/*` 时，pill 主位从金额切换为
+  「额度 5h 68% · 7d 79%」（**剩余**百分比：优先 `remaining / limit` 精确计算，
+  缺字段退回 100 − percentage），DeepSeek 余额段在该模式下隐藏；额度查询失败
+  （无 Key / 401 / 断网）优雅降级回金额显示，面板给对应错误文案。
+- 面板新增「GLM Coding Plan 用量」小节：套餐档位（`level`）、5 小时窗 / 周窗的
+  「剩余 8184 / 12000 · 68% · 重置于 14:35」与手动刷新；剩余 ≤ 20% 标红
+  （`zaiQuota.warnThreshold` 可配）。
+- 新增 `lib/zai-quota.js` 与 loopback 路由 `/api/cost-pill/zai-quota`：查询
+  `GET {host}/api/monitor/usage/quota/limit`（`Authorization` 头直接放 Key，
+  **无 Bearer 前缀**）。实测口径：`unit: 3` = 5h 窗、`unit: 6` = 周窗、
+  `percentage` = 已用百分比（0–100）；`TOKENS_LIMIT` / `CREDIT_LIMIT` 大小写
+  不敏感同收，`unit` 缺失时按重置时间启发式兜底（cc-switch 同款，避免周期末
+  两桶标反），`TIME_LIMIT` 归 MCP 月度。TTL 缓存 + 单飞闸 + `?refresh=1`，
+  结构对齐余额路由；Key 只在宿主进程内使用，绝不回传浏览器。
+- 连接事实从 settings 的 `llm-pi-ai.providers.zai-coding-cn` 读取
+  （`apiKeyEnv` / `baseUrl`），Key 经 credentials 缝解析；额度端点域名随编码
+  端点自动映射（bigmodel.cn ↔ open.bigmodel.cn，z.ai ↔ api.z.ai）。
+- 接口形状经 2026-10-10 open.bigmodel.cn 个人 Pro 套餐实测校准；团队套餐
+  （`?type=2` + org/project 头）结构预留未实现。
+
 ## 0.1.6 — 2026-09-24
 
 **修复（子代理树在前端从未生效：会话 id 取不到）**

@@ -1,6 +1,6 @@
 {
   "name": "dsh-cost-pill",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "type": "module",
   "description": "DSH Web plugin: a session API-cost + account-balance pill merged into the official composer stats row, with a click-open breakdown panel. Host half registers a `costPill` session projection and a loopback-only balance route; browser half renders it through the slot runtime.",
   "license": "MIT",
@@ -62,7 +62,7 @@
     }
   },
   "scripts": {
-    "test": "node --test test/pricing.test.mjs test/balance.test.mjs test/price-source.test.mjs test/host.test.mjs test/client.smoke.test.mjs",
+    "test": "node --test test/pricing.test.mjs test/balance.test.mjs test/price-source.test.mjs test/host.test.mjs test/client.smoke.test.mjs test/zai-quota.test.mjs",
     "check": "node --check lib/pricing.js && node --check lib/balance.js && node --check lib/price-source.js && node --check lib/index.js && node --check lib/client.js && npm test",
     "fold": "node scripts/fold-session.mjs"
   },

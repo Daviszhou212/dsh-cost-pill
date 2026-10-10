@@ -2,7 +2,9 @@
 
 DSH Web 插件：在输入框下方的统计行**同一行**里，加一枚**与官方统计 pill 完全同款**的
 「本会话 API 费用 · 余额 · 缓存命中」胶囊，点击向上展开明细面板（分时段金额、账户余额、
-分模型明细、单价表与价目来源）。
+分模型明细、单价表与价目来源）。会话由智谱 GLM Coding Plan（`zai-coding-cn`）供给时，
+pill 主位自动切换为「额度 5h 68% · 7d 79%」的**剩余**窗口额度，面板显示套餐档位、窗口
+明细与重置时间（金额仅作按 API 价折算的等效估算）。
 
 - **视觉零发明**：pill 与面板的每个数值都逐条抄自官方源码 —— `StatsPills.module.css`
   （颜色 token、字号、`gap`、`padding`、`border-radius`、hover 态、`sep` 的 margin）与
@@ -20,6 +22,10 @@ DSH Web 插件：在输入框下方的统计行**同一行**里，加一枚**与
 - **子代理费用计入**：子代理是独立会话、烧同一个余额。插件按会话头部的
   `parentSession` / `origin` 收集整棵子代理树（含多层嵌套），与本体一起计价 ——
   派生了 20 个子代理的会话不会再只显示父会话自己的费用。
+- **智谱 Coding Plan 剩余额度**：计费样本带 `zai-coding-cn/` 前缀即切换为 5 小时窗 /
+  周窗的**剩余**百分比（`remaining / limit` 精确计算），低于阈值标红；数据来自宿主侧
+  loopback 路由 `/api/cost-pill/zai-quota`（上游 `/api/monitor/usage/quota/limit`，
+  Authorization 无 Bearer，Key 只在宿主进程内经 credentials 缝解析）。
 - **零构建**：手写 CJS client bundle（同社区 `dsh-annotation` 做法），没有 build 步骤，
   改完源码重启即生效。
 - **模型可见面为零**：不注入任何提示词、消息、工具或模型调用。
@@ -88,6 +94,22 @@ dsh plugin --profile web remove dsh-cost-pill
       url: 'https://api-docs.deepseek.com/zh-cn/quick_start/pricing/'   # 必须 https
       cachePath: ''          # 默认 $DSH_HOME/storages/dsh-cost-pill-pricing.json
 ```
+
+智谱 GLM Coding Plan 额度的配置（`zaiQuota` 段，整段可省；无此配置时默认启用）：
+
+```yaml
+- id: cost-pill
+  config:
+    zaiQuota:
+      enabled: true          # false = 不注册额度路由，zai 会话退回金额显示
+      cacheMs: 120000        # 宿主侧 TTL 缓存
+      timeoutMs: 15000       # 上游单次查询超时
+      warnThreshold: 20      # 剩余百分比低于该值标红
+```
+
+连接事实从 settings 的 `llm-pi-ai.providers.zai-coding-cn` 读取（`apiKeyEnv` /
+`baseUrl`，缺省 `ZAI_CODING_CN_API_KEY` 与 open.bigmodel.cn）；额度端点域名随编码
+端点自动映射（bigmodel.cn ↔ open.bigmodel.cn，z.ai ↔ api.z.ai）。
 
 ## 价目来源
 
