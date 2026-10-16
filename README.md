@@ -157,9 +157,6 @@ dsh plugin --profile web remove dsh-cost-pill
   经 fallback 切换后的调用都能各自计价；拿不到 source 的样本落到 `unknown/unknown`，
   会显示为「价格未知」而不是被静默算进别的模型。
 
-- **归因**：按事件的 `message.source` 取 `provider/model`，因此多模型混合会话、以及
-  经 fallback 切换后的调用都能各自计价；拿不到 source 的样本落到 `unknown/unknown`，
-  会显示为「价格未知」而不是被静默算进别的模型。
 - **子代理归集**：子代理是独立会话。pill 的费用默认为「本会话 + 整棵子代理树」：
   宿主侧按会话头部的 `parentSession` / `origin: 'subagent'` 收集派生树（含多层嵌套），
   用同一套折叠逻辑逐会话计价后合并；面板「子代理会话」区给出拆分。关闭方式：

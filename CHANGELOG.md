@@ -2,6 +2,22 @@
 
 本文件记录对外可见的变更。版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## 0.1.9 — 2026-10-17
+
+**清理（删除客户端 `sessions.list` 死代码——0.2 适配的遗留部分）**
+
+- DSH 0.2 的客户端 `sessions` 面只剩
+  `retain / using / retainInfo / refreshProjections / refresh / search / fork / scope / binding`，
+  旧的 `sessions.list.getSnapshot().byId` 扫描与 `sessions.list.subscribe` 在新运行时
+  恒为 `undefined`（被守卫静默吞掉，等于没有兜底）。会话 id 现在只取
+  `conversation.composer.dock` 这个 `scope: "session"` 插槽注入的标准 prop
+  `sessionId`（插槽按会话重实例化，座位带着新鲜 id 重挂载）；客户端 `inject`
+  相应从 `['slots','locale','sessions']` 收缩为 `['slots','locale']`。
+- 顺手清理：`mountCostUi` 里重复声明的 `var panelSignature`（0.1.8 引入，无语义
+  影响）；README 里 0.1.8 意外重复的「归因」条目。
+- 宿主半边无需改动：`ctx.sessionProjections.register` 与
+  `ctx.webServer.register({ kind: 'exact', path, handler })` 在 0.2.0-rc.2 中均未变。
+
 ## 0.1.8 — 2026-10-10
 
 **新功能（zai-coding-cn 会话显示 GLM Coding Plan 剩余额度）**
@@ -25,6 +41,14 @@
   端点自动映射（bigmodel.cn ↔ open.bigmodel.cn，z.ai ↔ api.z.ai）。
 - 接口形状经 2026-10-10 open.bigmodel.cn 个人 Pro 套餐实测校准；团队套餐
   （`?type=2` + org/project 头）结构预留未实现。
+
+## 0.1.7 — 2026-10-02
+
+**适配 DSH 0.2.0-rc.2（元数据门禁）**
+
+- `engines.dsh` 与 4 个 `@deepseek-ai/*` peer 范围从 `^0.1.5-rc.1`
+  放宽为 `^0.1.5-rc.1 || ^0.2.0-rc.1`，并在 `dsh.compatibility.dshReleases` 补登记
+  `0.2.0-rc.2`。此前桌面端升到 0.2.0-rc.2 后，插件被判定 peer 不兼容而拒绝加载。
 
 ## 0.1.6 — 2026-09-24
 
